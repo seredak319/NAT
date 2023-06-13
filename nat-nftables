@@ -1,0 +1,76 @@
+#!/bin/sh
+
+# config/nat-nftable
+# Konfiguracja NAT-a (stateful source NAT)
+# ato, ks 2021-2023
+
+# https://wiki.archlinux.org/title/nftables#Masquerading
+# https://wiki.archlinux.org/title/Router#Connection_sharing
+# https://wiki.archlinux.org/title/Internet_sharing#Enable_NAT
+# https://wiki.nftables.org/wiki-nftables/index.php/Performing_Network_Address_Translation_(NAT)
+# https://archlinux.org/packages/extra/x86_64/nftables/
+#PACOPT="--needed --noconfirm --noprogressbar"
+
+# Orginalny skrpyt posiada również funkcję Config_cli, odpowiadający konfiguracji z linii poleceń.
+#/pub/Linux/Arch/zetis/bin/config/nat-nftables
+
+
+Config_file () {
+	wan=$1
+	file=/etc/nftables.conf
+	IP=ip  # Tylko IPv4, mozliwe inne wartosci np inet dla ipv4 oraz ipv6 -> archwiki - nftables
+	
+	# Tworzenie kopii zapasowej oryginalnego pliku konfiguracyjnego
+	cp -p $file $file-org
+	
+	# Tworzenie pliku nftables.conf z regulami NAT
+	cat > $file <<EOF
+	table $IP NAT {
+		chain NAT {
+			type nat hook postrouting priority srcnat;
+			oifname $wan masquerade
+		}
+	}
+EOF
+	
+	# Uruchomienie uslugi nftables
+	systemctl start nftables.service
+	systemctl enable nftables.service
+}
+
+# START
+
+set -e
+
+# Instalacja
+bin=${0%/bin/*}/bin    #usuniecie sufiksu np jezeli uruchamiamy nie z katologu (/a/b/nat-nftables --> /nat-nftables)
+$bin/install/nftables  #lub pacman -Sy $PACOPT nftables
+
+# Konfiguracja interfejsow WAN/DMZ
+wan=eth0  		# Nazwa interfejsu
+NAT=10.146.225.3/16     # Adres IP
+
+# Usuniecie wszystkich istniejacych adresow z interfejsu WAN
+ip addr flush dev $wan
+
+# Przypisanie adresu IP do interfejsu WAN
+ip addr add $NAT dev $wan
+
+# Konfiguracja interfejsow LAN
+lan=eth1  		# Nazwa interfejsu
+LAN=172.29.225.3/16     # Adres IP 
+
+# Usuniecie wszystkich istniejacych adresow z interfejsu LAN
+ip addr flush dev $lan
+
+# Przypisanie adresu IP do interfejsu LAN
+ip addr add $LAN dev $lan
+
+# Wlaczenie przekazywania pakietow w jadrze
+sysctl net.ipv4.ip_forward=1
+
+# Konfiguracja pliku nftables.conf - glowna czesc skryptu
+Config_file $wan
+
+exit
+
